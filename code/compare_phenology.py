@@ -73,14 +73,13 @@ with rasterio.open(raster, 'w', driver='GTiff', height=120, width=720, count=3, 
     dst.write(POSdelta, 2)
     dst.write(EOSdelta, 3)
 
-
-SOSdelta=SOSdelta[~np.isnan(SOSdelta)]
-POSdelta=POSdelta[~np.isnan(POSdelta)]
-EOSdelta=EOSdelta[~np.isnan(EOSdelta)]
-SOSmedian=np.median(SOSdelta)
-POSmedian=np.median(POSdelta)
-EOSmedian=np.median(EOSdelta)
-print(SOSmedian, POSmedian, EOSmedian)
+SOSdelta = SOSdelta[~np.isnan(SOSdelta)]
+POSdelta = POSdelta[~np.isnan(POSdelta)]
+EOSdelta = EOSdelta[~np.isnan(EOSdelta)]
+SOSmean = np.mean(SOSdelta)
+POSmean = np.mean(POSdelta)
+EOSmean = np.mean(EOSdelta)
+print(SOSmean, POSmean, EOSmean)
 print(len(SOSdelta), len(POSdelta), len(EOSdelta))
 
 import rasterio
