@@ -53,7 +53,7 @@ for site in sitenamelist:
 
     df = pd.read_csv(fr'other/{site}.csv')
     df = df[(df['SIF_iFLD_raw'] > -9999) & (df['NDVI'] > -9999) & (df['EVI'] > -9999) & (df['NIRv'] > -9999) & (
-            df['CI_green'] > -9999) & (df['PRI'] > -9999) & (df['FPAR_measured'] > -9999) & (df['PAR'] > -9999)]
+            df['CI_red_edge'] > -9999) & (df['PRI'] > -9999) & (df['FPAR_measured'] > -9999) & (df['PAR'] > -9999)]
 
     df['timestamp_start'] = pd.to_datetime(df['timestamp_start'], errors='coerce')
     df = df.dropna(subset=['timestamp_start'])
@@ -62,7 +62,7 @@ for site in sitenamelist:
 
     print(df.shape)
 
-    df['SIF_raw'] = df['SIF_iFLD_raw']
+    df['SIF_raw'] = df['SIF_iFLD_raw'] * df["f_cal_corr_QEPRO"]
     df['CI'] = df['CI_red_edge']
     df['FPAR'] = df['FPAR_measured']
 
