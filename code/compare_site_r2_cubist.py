@@ -105,7 +105,7 @@ for site in sitenamelist:
                 model.fit(X_train, y_train)
                 preds = model.predict(X_test)
 
-                r2 = pearsonr(y_test, preds)[0] ** 2
+                from sklearn.metrics import r2_score; r2 = r2_score(y_test, preds)
                 r2_list.append(r2)
 
             for r2 in r2_list:

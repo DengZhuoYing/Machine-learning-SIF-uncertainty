@@ -34,7 +34,7 @@ model = xgb.XGBRegressor(random_state=42)
 model.fit(df_train[['R1', 'R2', 'R3', 'R4', 'COSSZA']], df_train['SIF'])
 preds = model.predict(df_test[['R1', 'R2', 'R3', 'R4', 'COSSZA']])
 
-r2 = stats.pearsonr(df_test['SIF'], preds)[0] ** 2
+from sklearn.metrics import r2_score; r2 = r2_score(df_test['SIF'], preds)
 rmse = np.sqrt(np.mean((preds - df_test['SIF']) ** 2))
 rrmse = rmse / np.mean(df_test['SIF']) * 100
 print(f"R² = {r2:.3f}, RMSE = {rmse:.3f}")
