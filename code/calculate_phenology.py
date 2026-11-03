@@ -111,7 +111,7 @@ def extract_phenology(ts, thresholds):
     sos_list, pos_list, eos_list = [], [], []
     for i in range(n_years):
         y = ts[i * days_per_year: (i + 1) * days_per_year]
-        pos = np.argmax(y) + 1
+        pos = np.nanargmax(y) + 1
         pos_list.append(pos)
         sos_vals, eos_vals = [], []
         for th in thresholds:
@@ -183,7 +183,7 @@ if __name__ == '__main__':
     true_SOS, true_POS, true_EOS = [], [], []
     for i in range(n_years):
         y = signal_missing[i * days_per_year: (i + 1) * days_per_year]
-        pos = np.argmax(y) + 1
+        pos = np.nanargmax(y) + 1
         true_POS.append(pos)
         sos_vals, eos_vals = [], []
         for th in thresholds:

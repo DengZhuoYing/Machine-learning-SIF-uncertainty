@@ -30,17 +30,17 @@ for year in range(2014, 2026):
 
     landcover = landcover[:120, :]
 
+    # Keep only the first 120 rows for each dataset
+    SOSdelta = SOSdelta[:120, :]
+    POSdelta = POSdelta[:120, :]
+    EOSdelta = EOSdelta[:120, :]
+
     SOSdelta[
         (landcover == 0) | (landcover == 15) | (landcover == 16) | (landcover == 17) | (landcover == 255)] = np.nan
     POSdelta[
         (landcover == 0) | (landcover == 15) | (landcover == 16) | (landcover == 17) | (landcover == 255)] = np.nan
     EOSdelta[
         (landcover == 0) | (landcover == 15) | (landcover == 16) | (landcover == 17) | (landcover == 255)] = np.nan
-
-    # Keep only the first 120 rows for each dataset
-    SOSdelta = SOSdelta[:120, :]
-    POSdelta = POSdelta[:120, :]
-    EOSdelta = EOSdelta[:120, :]
 
     os.makedirs(fr'D:\SIFcompare\GOSIF_phe\delta', exist_ok=True)
     raster = fr'D:\SIFcompare\GOSIF_phe\delta\delta_{year}.tif'
@@ -127,6 +127,13 @@ for year in range(2014, 2026):
 
     landcover = landcover[:120, :]
 
+    SOSyear1 = SOSyear1[:120, :]
+    POSyear1 = POSyear1[:120, :]
+    EOSyear1 = EOSyear1[:120, :]
+    SOSyear2 = SOSyear2[:120, :]
+    POSyear2 = POSyear2[:120, :]
+    EOSyear2 = EOSyear2[:120, :]
+
     mask_land = (landcover == 0) | (landcover == 15) | (landcover == 16) | (landcover == 17) | (landcover == 255)
     SOSyear1[mask_land] = np.nan
     POSyear1[mask_land] = np.nan
@@ -134,13 +141,6 @@ for year in range(2014, 2026):
     SOSyear2[mask_land] = np.nan
     POSyear2[mask_land] = np.nan
     EOSyear2[mask_land] = np.nan
-
-    SOSyear1 = SOSyear1[:120, :]
-    POSyear1 = POSyear1[:120, :]
-    EOSyear1 = EOSyear1[:120, :]
-    SOSyear2 = SOSyear2[:120, :]
-    POSyear2 = POSyear2[:120, :]
-    EOSyear2 = EOSyear2[:120, :]
 
     idx = (year - 2014) // 2
     period_label = period_labels[idx]

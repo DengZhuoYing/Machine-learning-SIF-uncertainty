@@ -181,7 +181,7 @@ def process_c4_only(years_range, output_filename):
             areatmp = area.copy()
             areatmp[SIF_data == 0] = 0
 
-            GPPtmp = callc_with_mask(lc_data, SIF_data, list(range(1, 13)))
+            GPPtmp = callc_with_mask(lc_data, SIF_data, list(range(1, 13)) + [14])
             GPPtmpco2 = calculate_c4_only(GPPtmp, C4_data, SIF_data, fai_data)
             GPP_year += (GPPtmpco2 * areatmp).flatten() / np.sum(areatmp)
 
