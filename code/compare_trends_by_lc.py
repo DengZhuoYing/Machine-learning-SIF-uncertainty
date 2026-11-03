@@ -17,7 +17,7 @@ component_colors = plt.cm.tab10(np.linspace(0, 1, 9))
 
 for idx, (lc, ax) in enumerate(zip(lclist, axes_flat)):
 
-    SatelliteGPP = [f'MCI_GPP-{lc}', f'ST_CFE-ML_NT-{lc}', f'ST_CFE-Hybrid_NT-{lc}']
+    SatelliteGPP = [f'MCI_GPP-{lc}', f'ST_CFE-Hybrid_NT-{lc}', f'ST_CFE-ML_NT-{lc}']
     MLSIF_linear = [f'CSIF-linear-{lc}', f'GOSIF-linear-{lc}', f'RTSIF-linear-{lc}']
     MLSIF_CO2_linear = [f'CSIF-CO2-linear-{lc}', f'GOSIF-CO2-linear-{lc}', f'RTSIF-CO2-linear-{lc}']
 
@@ -47,7 +47,7 @@ for idx, (lc, ax) in enumerate(zip(lclist, axes_flat)):
                 slope, _, _, _, _ = stats.linregress(df_filtered['Year'], df_filtered['Sum'])
 
                 component_slopes.append(slope)
-                ensemble_component_info.append(('', slope))
+                ensemble_component_info.append((component_name, slope))
 
         if component_slopes:
             avg_slope = np.mean(component_slopes)
@@ -68,6 +68,7 @@ for idx, (lc, ax) in enumerate(zip(lclist, axes_flat)):
         x_positions = np.linspace(pos - x_offset, pos + x_offset, num_components) if num_components > 1 else [pos]
 
         for j, (x_pos, (custom_label, slope_val)) in enumerate(zip(x_positions, comp_info)):
+            j = list(ensembles.values())[i].index(custom_label)
             if i == 0:
                 marker_idx = (i * 5 + j) % len(markers)
                 color_idx = (i * 3 + j) % len(component_colors)
@@ -101,8 +102,8 @@ bar_legend_elements = [plt.Rectangle((0, 0), 1, 1, facecolor=bar_colors[i],
 # Scatter plot legend for each component
 # Define base names and display labels for each group
 group1 = [('MCI_GPP', 'MCI GPP'),
-          ('ST_CFE-ML_NT', 'ML-NT GPP'),
-          ('ST_CFE-Hybrid_NT', 'Hybrid-NT GPP')]
+          ('ST_CFE-Hybrid_NT', 'Hybrid-NT GPP'),
+          ('ST_CFE-ML_NT', 'ML-NT GPP')]
 group2 = [('CSIF-linear', 'CSIF-cons.'),
           ('GOSIF-linear', 'GOSIF-cons.'),
           ('RTSIF-linear', 'RTSIF-cons.')]

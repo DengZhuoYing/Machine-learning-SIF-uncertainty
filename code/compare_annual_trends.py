@@ -30,12 +30,10 @@ custom_labels = {
     'CSIF-linear': 'CSIF-cons.',
     'GOSIF-linear': 'GOSIF-cons.',
     'RTSIF-linear': 'RTSIF-cons.',
-    'LHSIF-linear': 'LHSIF-cons.',
 
     'CSIF-CO2-linear': 'CSIF-cons. (CFE)',
     'GOSIF-CO2-linear': 'GOSIF-cons. (CFE)',
     'RTSIF-CO2-linear': 'RTSIF-cons. (CFE)',
-    'LHSIF-CO2-linear': 'LHSIF-cons. (CFE)',
 
     # Add the EEO-inferred GPP label
     'EEO-inferred_GPP_A': 'EEO-inferred GPP (direct)',
