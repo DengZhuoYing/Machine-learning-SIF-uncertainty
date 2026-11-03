@@ -1,89 +1,117 @@
+from pathlib import Path
+
 import numpy as np
-import math
 import matplotlib.pyplot as plt
 from scipy.signal import savgol_filter
 from scipy.interpolate import UnivariateSpline
 
 
-def smooth_hants(ni, nb, nf, y, ts, HiLo, low, high, fet, dod, delta, fill_val):
-    '''
-    Harmonic Analysis of Time Series (HANTS) implementation
-    Parameters:
-        ni : Time-series length
-        nb : Base period length (for example, 365 days)
-        nf : Number of harmonics to retain
-        y  : Input time series (one-dimensional array)
-        ts : Time position for each observation (for example, a day index)
-        HiLo : 'Hi' Reject points above the fitted values,'Lo' Reject points below the fitted values
-        low, high : Valid data range used for initial outlier rejection
-        fet : Fit error tolerance; stop when the maximum error is below this value
-        dod : Extra degrees of freedom used to calculate the maximum rejection count
-        delta : Regularization parameter that prevents a singular matrix
-        fill_val : Fill value used when there are too few valid points
-    Returns:
-        yr : Fitted time series
+HANTS_START_YEARS = {365: 2014, 92: 2001, 46: 2001}
+HANTS_STEP_DAYS = {92: 4, 46: 8}
 
 
-    '''
+def _make_hants_dates(ts, nb, start_year):
+    if start_year is None:
+        start_year = HANTS_START_YEARS[nb]
 
-    yr = np.zeros((ni, 1))
+    sample_indices = np.asarray(ts, dtype=np.int64)
+    if nb == 365:
+        first_day = np.datetime64(f'{start_year}-01-01', 'D')
+        return first_day + sample_indices.astype('timedelta64[D]')
 
-    sHiLo = -1 if HiLo == 'Hi' else 1 if HiLo == 'Lo' else 0
-    nr = min(2 * nf + 1, ni)
-    noutmax = ni - nr - dod
-    ang = 2 * math.pi * np.arange(nb) / nb
-    cs, sn = np.cos(ang), np.sin(ang)
+    years = start_year + sample_indices // nb
+    year_starts = (years - 1970).astype('datetime64[Y]').astype('datetime64[D]')
+    day_offsets = (sample_indices % nb) * HANTS_STEP_DAYS[nb]
+    return year_starts + day_offsets.astype('timedelta64[D]')
 
-    i_vals = np.arange(1, nf + 1)
-    ts_col = ts.reshape(-1, 1)
-    indices = ((i_vals * ts_col) % nb).astype(int)
 
-    mat = np.zeros((2 * nf + 1, ni))
+def _annual_coordinates(dates):
+    dates = np.asarray(dates, dtype='datetime64[D]')
+    calendar_years = dates.astype('datetime64[Y]')
+    for year in np.unique(calendar_years):
+        indices = np.flatnonzero(calendar_years == year)
+        first_day = year.astype('datetime64[D]')
+        next_year = (year + np.timedelta64(1, 'Y')).astype('datetime64[D]')
+        period = float((next_year - first_day) / np.timedelta64(1, 'D'))
+        day_offsets = (dates[indices] - first_day).astype('timedelta64[D]').astype(float)
+        yield indices, day_offsets, period
+
+
+def _fit_hants_year(y, ts, period, nf, HiLo, low, high, fet, dod, delta, fill_val):
+    """Fit an independent set of harmonic coefficients for one calendar year."""
+    valid = np.isfinite(y) & (y >= low) & (y <= high)
+    coefficient_count = 2 * nf + 1
+    min_points = coefficient_count + dod
+    if np.count_nonzero(valid) < min_points:
+        return np.full(len(y), fill_val, dtype=float)
+
+    angles = 2 * np.pi * np.arange(1, nf + 1)[:, None] * ts[None, :] / period
+    mat = np.empty((coefficient_count, len(y)), dtype=float)
     mat[0, :] = 1.0
-    mat[1:2 * nf + 1:2, :] = cs[indices.T]
-    mat[2:2 * nf + 1:2, :] = sn[indices.T]
-    mat_T = mat.T
+    mat[1::2, :] = np.cos(angles)
+    mat[2::2, :] = np.sin(angles)
 
-    p = np.ones_like(y)
-    outliers = (y < low) | (y > high)
-    p[outliers] = 0
-    nout = np.sum(outliers)
+    weights = valid.astype(float)
+    observed = np.where(valid, y, 0.0)
+    direction = -1 if HiLo == 'Hi' else 1 if HiLo == 'Lo' else 0
 
-    if nout > noutmax:
-        return np.full_like(y, fill_val)
+    while True:
+        weighted_mat = mat * weights
+        normal_matrix = weighted_mat @ mat.T
+        normal_matrix[np.diag_indices_from(normal_matrix)] += delta
+        normal_matrix[0, 0] -= delta
+        coefficients = np.linalg.solve(normal_matrix, weighted_mat @ observed)
+        fitted = mat.T @ coefficients
 
-    nloop, nloopmax = 0, ni
-    while nloop < nloopmax:
-        nloop += 1
+        errors = direction * (fitted - observed)
+        errors[weights == 0] = -np.inf
+        max_error = np.max(errors)
+        remaining = int(np.sum(weights)) - min_points
+        if max_error <= fet or remaining == 0:
+            return fitted
 
-        weighted_mat = mat * p
-        A = weighted_mat @ mat_T
-        A[np.diag_indices_from(A)] += delta
-        A[0, 0] -= delta
-        za = weighted_mat @ y
-        zr = np.linalg.solve(A, za)
-        yr = mat_T @ zr
+        candidates = np.flatnonzero(errors > 0.5 * max_error)
+        candidates = candidates[np.argsort(errors[candidates])[::-1]]
+        remove_count = min(len(candidates), remaining)
+        weights[candidates[:remove_count]] = 0.0
 
-        diffVec = sHiLo * (yr - y)
-        err = p * diffVec
 
-        rank_idx = np.argsort(err)
-        maxerr = diffVec[rank_idx[-1]]
-        ready = (maxerr <= fet) or (nout >= noutmax)
+def smooth_hants(ni, nb, nf, y, ts, HiLo, low, high, fet, dod, delta, fill_val,
+                 *, dates=None, start_year=None):
+    """
+    Fit HANTS independently for each calendar year.
 
-        if ready:
-            break
+    ni: Number of observations.
+    nb: Annual sampling scheme: 365 for daily observations, 92 for four-day
+        observations, or 46 for eight-day observations. Calendar dates determine
+        the actual annual period of 365 or 366 days.
+    nf: Number of harmonics fitted separately for each year.
+    y: One-dimensional observations. Non-finite and out-of-range values have
+        zero fitting weight.
+    ts: Zero-based sample indices used when dates are omitted.
+    HiLo: Hi rejects points above the fitted curve; Lo rejects points below it.
+    low, high: Inclusive observation limits.
+    fet: Fit error tolerance.
+    dod: Valid observations retained in addition to the fitted coefficients.
+    delta: Regularization applied to harmonic coefficients, excluding the mean.
+    fill_val: Output for years with insufficient valid observations.
+    dates: Actual observation dates, including gaps and partial years.
+    start_year: First year used to construct dates from the sampling scheme.
+        Defaults are defined by HANTS_START_YEARS.
 
-        desc_idx = rank_idx[::-1]
-        condition = (p[desc_idx] * diffVec[desc_idx] > 0.5 * maxerr) & (p[desc_idx] != 0)
-        n_remove = min(np.sum(condition), noutmax - nout)
-        if n_remove > 0:
-            remove_idx = desc_idx[:n_remove][condition[:n_remove]]
-            p[remove_idx] = 0
-            outliers[remove_idx] = 1
-            nout += n_remove
+    Return a one-dimensional fitted series in the original observation order.
+    """
+    y = np.asarray(y, dtype=float)
+    if dates is None:
+        dates = _make_hants_dates(ts, nb, start_year)
 
-    return yr
+    result = np.full(ni, fill_val, dtype=float)
+    for indices, year_time, period in _annual_coordinates(dates):
+        result[indices] = _fit_hants_year(
+            y[indices], year_time, period, nf, HiLo,
+            low, high, fet, dod, delta, fill_val
+        )
+    return result
 
 
 def smooth_spline(y, s=None):
@@ -106,120 +134,99 @@ def linear_interpolate(arr):
     return np.interp(x, x[mask], arr[mask])
 
 
-def extract_phenology(ts, thresholds):
-    n_years = len(ts) // days_per_year
+def extract_phenology(ts, thresholds, days_per_year=365, dates=None):
+    """Extract annual SOS, POS and EOS using actual day-of-year coordinates."""
+    ts = np.asarray(ts, dtype=float)
+    if dates is None:
+        groups = (
+            (np.arange(start, start + days_per_year),
+             np.arange(days_per_year, dtype=float), float(days_per_year))
+            for start in range(0, len(ts) - days_per_year + 1, days_per_year)
+        )
+    else:
+        groups = _annual_coordinates(dates)
+
     sos_list, pos_list, eos_list = [], [], []
-    for i in range(n_years):
-        y = ts[i * days_per_year: (i + 1) * days_per_year]
-        pos = np.nanargmax(y) + 1
-        pos_list.append(pos)
+    for indices, day_offsets, _ in groups:
+        y = ts[indices]
+        doy = day_offsets + 1
+        if not np.any(np.isfinite(y)):
+            sos_list.append(np.nan)
+            pos_list.append(np.nan)
+            eos_list.append(np.nan)
+            continue
+
+        pos_list.append(float(doy[np.nanargmax(y)]))
         sos_vals, eos_vals = [], []
-        for th in thresholds:
-            idx = np.where(y >= th)[0]
-            if len(idx) > 0:
-                sos_vals.append(idx[0] + 1)
-                eos_vals.append(idx[-1] + 1)
-        sos_list.append(np.nanmean(sos_vals) if sos_vals else np.nan)
-        eos_list.append(np.nanmean(eos_vals) if eos_vals else np.nan)
+        for threshold in thresholds:
+            above = np.flatnonzero(y >= threshold)
+            if len(above) > 0:
+                sos_vals.append(doy[above[0]])
+                eos_vals.append(doy[above[-1]])
+        sos_list.append(np.mean(sos_vals) if sos_vals else np.nan)
+        eos_list.append(np.mean(eos_vals) if eos_vals else np.nan)
     return sos_list, pos_list, eos_list
 
 
 if __name__ == '__main__':
-
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
     years = np.arange(2014, 2026)
-    n_years = len(years)
-    days_per_year = 365  # Simplified handling for non-leap years
-    total_days = 12 * 365
+    dates = np.arange(np.datetime64('2014-01-01'), np.datetime64('2026-01-01'))
+    annual_groups = list(_annual_coordinates(dates))
 
-    t = np.arange(total_days)
-    base = 1 + 0.8 * np.sin(2 * np.pi * t / 365 - np.pi / 2)
-    base = base * 2  # Increase the amplitude
-    noise = np.random.normal(0, 0.15, size=total_days)
-    signal = base + noise
+    # Give each year a different peak date.
+    base = np.empty(len(dates), dtype=float)
+    for year_index, (indices, day_offsets, period) in enumerate(annual_groups):
+        shift = 15 * np.sin(2 * np.pi * year_index / len(years))
+        base[indices] = 2 + 1.6 * np.sin(
+            2 * np.pi * (day_offsets - shift) / period - np.pi / 2
+        )
 
-    missing_mask = np.random.random(total_days) < 0.2
+    signal = base + rng.normal(0, 0.15, size=len(dates))
     signal_missing = signal.copy()
-    signal_missing[missing_mask] = np.nan
+    signal_missing[rng.random(len(dates)) < 0.2] = np.nan
 
-    # aa = 0
-    # signal_missing[:90] = aa
-    # signal_missing[365 * 1:90 + 365 * 1] = aa
-    # signal_missing[365 * 2:90 + 365 * 2] = aa
-    # signal_missing[365 * 3:90 + 365 * 3] = aa
-    # signal_missing[365 * 4:90 + 365 * 4] = aa
-    # signal_missing[365 * 5:90 + 365 * 5] = aa
-    # signal_missing[365 * 6:90 + 365 * 6] = aa
-    # signal_missing[365 * 7:90 + 365 * 7] = aa
-    # signal_missing[365 * 8:90 + 365 * 8] = aa
-    # signal_missing[365 * 9:90 + 365 * 9] = aa
-    # signal_missing[365 * 10:90 + 365 * 10] = aa
-    # signal_missing[365 * 11:90 + 365 * 11] = aa
-    # signal_missing[-90:] = aa
-    # signal_missing[-90 - 365 * 1:-365 * 1] = aa
-    # signal_missing[-90 - 365 * 2:-365 * 2] = aa
-    # signal_missing[-90 - 365 * 3:-365 * 3] = aa
-    # signal_missing[-90 - 365 * 4:-365 * 4] = aa
-    # signal_missing[-90 - 365 * 5:-365 * 5] = aa
-    # signal_missing[-90 - 365 * 6:-365 * 6] = aa
-    # signal_missing[-90 - 365 * 7:-365 * 7] = aa
-    # signal_missing[-90 - 365 * 8:-365 * 8] = aa
-    # signal_missing[-90 - 365 * 9:-365 * 9] = aa
-    # signal_missing[-90 - 365 * 10:-365 * 10] = aa
-    # signal_missing[-90 - 365 * 11:-365 * 11] = aa
-
-    year_min = np.nanmin(signal_missing.reshape(n_years, days_per_year), axis=1)
-    year_max = np.nanmax(signal_missing.reshape(n_years, days_per_year), axis=1)
-
-    min_avg = np.nanmean(year_min)
-    amp_avg = np.nanmean(year_max - year_min)
-    thresh10 = min_avg + 0.1 * amp_avg
-    thresh20 = min_avg + 0.2 * amp_avg
-    thresh30 = min_avg + 0.3 * amp_avg
-    thresholds = [thresh10, thresh20, thresh30]
-
-    print(thresholds)
-
-    true_SOS, true_POS, true_EOS = [], [], []
-    for i in range(n_years):
-        y = signal_missing[i * days_per_year: (i + 1) * days_per_year]
-        pos = np.nanargmax(y) + 1
-        true_POS.append(pos)
-        sos_vals, eos_vals = [], []
-        for th in thresholds:
-            idx = np.where(y >= th)[0]
-            if len(idx) > 0:
-                sos_vals.append(idx[0] + 1)
-                eos_vals.append(idx[-1] + 1)
-        true_SOS.append(np.nanmean(sos_vals) if sos_vals else np.nan)
-        true_EOS.append(np.nanmean(eos_vals) if eos_vals else np.nan)
+    year_min = np.array([np.nanmin(signal_missing[idx]) for idx, _, _ in annual_groups])
+    year_max = np.array([np.nanmax(signal_missing[idx]) for idx, _, _ in annual_groups])
+    min_avg = np.mean(year_min)
+    amp_avg = np.mean(year_max - year_min)
+    thresholds = min_avg + np.array([0.1, 0.2, 0.3]) * amp_avg
 
     data_filled = linear_interpolate(signal_missing)
-
     sg = smooth_sg(data_filled)
     spline = smooth_spline(data_filled)
-    hants = smooth_hants(len(data_filled), 365, 3, data_filled, np.arange(len(data_filled)), 'Hi', 0,
-                         np.max(data_filled) * 1.2, 0.1, 1, 1e-3, np.nan)
+    hants = smooth_hants(
+        len(signal_missing), 365, 3, signal_missing,
+        np.arange(len(signal_missing)), 'Hi', 0,
+        np.nanmax(signal_missing) * 1.2, 0.1, 1, 1e-3, np.nan,
+        dates=dates
+    )
 
-    sos_sg, pos_sg, eos_sg = extract_phenology(sg, thresholds)
-    sos_spline, pos_spline, eos_spline = extract_phenology(spline, thresholds)
-    sos_hants, pos_hants, eos_hants = extract_phenology(hants, thresholds)
+    true_sos, true_pos, true_eos = extract_phenology(base, thresholds, dates=dates)
+    sos_sg, pos_sg, eos_sg = extract_phenology(sg, thresholds, dates=dates)
+    sos_spline, pos_spline, eos_spline = extract_phenology(spline, thresholds, dates=dates)
+    sos_hants, pos_hants, eos_hants = extract_phenology(hants, thresholds, dates=dates)
 
-    plt.figure(figsize=(14, 6))
-    doy = np.arange(1, days_per_year + 1)
-    plt.plot(doy, signal_missing[:days_per_year], 'k.', markersize=2, label='Original')
-    plt.plot(doy, data_filled[:days_per_year], 'r.', markersize=2, label='Nan-Filled', alpha=0.5)
-    plt.plot(doy, sg[:days_per_year], 'b-', label='Savitzky-Golay')
-    plt.plot(doy, spline[:days_per_year], 'g-', label='Spline')
-    plt.plot(doy, hants[:days_per_year], 'm-', label='HANTS')
+    first_year = annual_groups[0][0]
+    doy = annual_groups[0][1] + 1
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    axes[0].plot(doy, signal_missing[first_year], 'k.', markersize=2, label='Original')
+    axes[0].plot(doy, sg[first_year], 'b-', label='Savitzky-Golay')
+    axes[0].plot(doy, spline[first_year], 'g-', label='Spline')
+    axes[0].plot(doy, hants[first_year], 'm-', label='HANTS')
+    for threshold in thresholds:
+        axes[0].axhline(threshold, color='gray', linestyle='--', alpha=0.5)
+    axes[0].set(xlabel='Day of year', ylabel='GPP', title=str(years[0]))
+    axes[0].legend()
 
-    plt.axhline(thresh10, color='gray', linestyle='--', alpha=0.5, label='10%')
-    plt.axhline(thresh20, color='gray', linestyle='-', alpha=0.5, label='20%')
-    plt.axhline(thresh30, color='gray', linestyle='-.', alpha=0.5, label='30%')
-    plt.xlabel('Day of Year', fontsize=14)
-    plt.ylabel('GPP', fontsize=14)
-    plt.tick_params(labelsize=14)
-    plt.legend(fontsize=14)
-    plt.tight_layout()
-    plt.savefig(r'other\2.png', dpi=300)
+    axes[1].plot(years, true_pos, 'k--', label='True POS')
+    axes[1].plot(years, pos_sg, 'bo-', label='Savitzky-Golay')
+    axes[1].plot(years, pos_spline, 'go-', label='Spline')
+    axes[1].plot(years, pos_hants, 'mo-', label='HANTS by year')
+    axes[1].set(xlabel='Year', ylabel='POS (day of year)')
+    axes[1].legend()
+    fig.tight_layout()
+    output_dir = Path(__file__).resolve().parent / 'other'
+    output_dir.mkdir(exist_ok=True)
+    fig.savefig(output_dir / '2.png', dpi=300)
     plt.show()
