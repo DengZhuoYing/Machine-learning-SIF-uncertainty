@@ -47,7 +47,7 @@ def callc(lc, SIF):
     result_non_zero[mask] = SIF_non_zero[mask] * 22.10 - 0.03
 
     mask = (lc_non_zero == 5)
-    result_non_zero[mask] = SIF_non_zero[mask] * 21.80 - 0.03
+    result_non_zero[mask] = SIF_non_zero[mask] * 21.80 + 0.70
 
     mask = (lc_non_zero == 7)
     result_non_zero[mask] = SIF_non_zero[mask] * 32.23 + 0.13
