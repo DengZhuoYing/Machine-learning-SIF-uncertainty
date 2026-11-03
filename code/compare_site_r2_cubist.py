@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from cubist import Cubist
-from scipy.stats import pearsonr
+from sklearn.metrics import r2_score
 import matplotlib.pyplot as plt
 import seaborn as sns
 from tqdm import tqdm
@@ -105,7 +105,7 @@ for site in sitenamelist:
                 model.fit(X_train, y_train)
                 preds = model.predict(X_test)
 
-                from sklearn.metrics import r2_score; r2 = r2_score(y_test, preds)
+                r2 = r2_score(y_test, preds)
                 r2_list.append(r2)
 
             for r2 in r2_list:
@@ -122,6 +122,7 @@ for site in sitenamelist:
     df_results.to_csv(f'cubist/{site} results.csv', index=False)
 
     df_results = pd.read_csv(f'cubist/{site} results.csv')
+    df_results['R2'] = np.where(df_results['R2'] < 0, 0, df_results['R2'])
     plt.figure(figsize=(6, 5))
     sns.boxplot(data=df_results, x='SIF_type', y='R2', hue='Driver_type', order=['SIF', 'SIF/PAR', 'SIF/PAR/FPAR'],
                 palette='Set1', legend=False)
@@ -137,6 +138,7 @@ for site in sitenamelist:
 
 site = 'All sites'
 df_results = pd.read_csv(f'cubist/{site} results.csv')
+df_results['R2'] = np.where(df_results['R2'] < 0, 0, df_results['R2'])
 plt.figure(figsize=(6, 5))
 sns.boxplot(data=df_results, x='SIF_type', y='R2', hue='Driver_type', order=['SIF', 'SIF/PAR', 'SIF/PAR/FPAR'],
             palette='Set1')
