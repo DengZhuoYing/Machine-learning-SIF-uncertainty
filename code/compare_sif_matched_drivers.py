@@ -121,7 +121,7 @@ def load_data(raw, mode):
         valid_drivers = (raw[REFLECTANCE_COLUMNS] > 0).all(axis=1)
     else:
         # Follow the reference GOSIF script: apply these filters before unit conversion.
-        valid_drivers = (raw["VPD"] > 0) & (raw["PAR"] > 0) & (raw["T2M"] > -30) & (raw["EVI"] > 0)
+        valid_drivers = (raw["VPD"] > 0) & (raw["PAR"] > 0) & (raw["T2M"] > 0) & (raw["EVI"] > 0)
     data = raw.loc[in_period & finite & valid_drivers, columns + ["source_row"]].copy()
     if mode == "CSIF":
         data[REFLECTANCE_COLUMNS] = data[REFLECTANCE_COLUMNS] / REFLECTANCE_SCALE
@@ -446,7 +446,7 @@ def write_run_notes(summary, counts, top, common, scales, mode):
         f"Match calendar month: {MATCH_SAME_MONTH}; spatial cell size: {SPATIAL_GRID_DEG} degrees",
         "CSIF: divide R1, R2, R3, and R4 by 10000.",
         "GOSIF: retain EVI; divide PAR by 24 and 3600, T2M by 24 and 10, and VPD by 24 and 100.",
-        "GOSIF filters follow the reference script: require VPD > 0, PAR > 0, T2M > -30, and EVI > 0 before unit conversion.",
+        "GOSIF filters follow the reference script: require VPD > 0, PAR > 0, T2M > 0, and EVI > 0 before unit conversion.",
         "Retain original SIF values, including negative values. Match and select examples separately for CSIF and GOSIF.",
         "",
         "Matching: find neighbors using predictors, then accept one-to-one pairs in ascending distance order.",

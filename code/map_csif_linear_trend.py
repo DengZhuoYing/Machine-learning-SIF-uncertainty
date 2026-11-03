@@ -38,7 +38,7 @@ def callc(lc, SIF):
     result_non_zero = np.zeros_like(SIF_non_zero)
 
     mask = (lc_non_zero == 1)
-    result_non_zero[mask] = SIF_non_zero[mask] * 27.85 + 0.92
+    result_non_zero[mask] = SIF_non_zero[mask] * 27.35 + 0.92
 
     mask = (lc_non_zero == 2)
     result_non_zero[mask] = SIF_non_zero[mask] * 17.87 + 3.70
@@ -47,7 +47,7 @@ def callc(lc, SIF):
     result_non_zero[mask] = SIF_non_zero[mask] * 22.10 - 0.03
 
     mask = (lc_non_zero == 5)
-    result_non_zero[mask] = SIF_non_zero[mask] * 22.10 - 0.03
+    result_non_zero[mask] = SIF_non_zero[mask] * 21.80 - 0.03
 
     mask = (lc_non_zero == 7)
     result_non_zero[mask] = SIF_non_zero[mask] * 32.23 + 0.13
