@@ -2,12 +2,13 @@ from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.signal import savgol_filter
+from scipy.signal import savgol_filter, find_peaks
 from scipy.interpolate import UnivariateSpline
 
 
 HANTS_START_YEARS = {365: 2014, 92: 2001, 46: 2001}
 HANTS_STEP_DAYS = {92: 4, 46: 8}
+POS_SUPPORT_DAYS = 15
 
 
 def _make_hants_dates(ts, nb, start_year):
@@ -134,9 +135,50 @@ def linear_interpolate(arr):
     return np.interp(x, x[mask], arr[mask])
 
 
-def extract_phenology(ts, thresholds, days_per_year=365, dates=None):
-    """Extract annual SOS, POS and EOS using actual day-of-year coordinates."""
+def extract_supported_pos(year_fit, year_doy, year_observed,
+                          max_gap_days=POS_SUPPORT_DAYS):
+    """Select the highest peak supported by the original observations.
+
+    A candidate must lie within max_gap_days of a finite observation, measured
+    in calendar days. Annual endpoint maxima are candidates too. Return NaN
+    for a flat curve or when no candidate has observation support.
+    """
+    year_fit = np.asarray(year_fit, dtype=float)
+    year_doy = np.asarray(year_doy, dtype=float)
+    observed_days = year_doy[np.isfinite(year_observed)]
+    finite_fit = year_fit[np.isfinite(year_fit)]
+    if observed_days.size == 0 or finite_fit.size == 0:
+        return np.nan
+    if np.ptp(finite_fit) == 0:
+        return np.nan
+
+    peaks, _ = find_peaks(year_fit)
+    peaks = np.unique(np.append(peaks, np.nanargmax(year_fit)))
+    gaps = np.min(np.abs(year_doy[peaks, None] - observed_days[None, :]), axis=1)
+    peaks = peaks[gaps <= max_gap_days]
+    if peaks.size == 0:
+        return np.nan
+
+    peak_index = peaks[np.argmax(year_fit[peaks])]
+    return float(year_doy[peak_index])
+
+
+def extract_phenology(ts, thresholds, days_per_year=365, dates=None,
+                      *, observed=None, max_gap_days=POS_SUPPORT_DAYS):
+    """Extract annual SOS, POS and EOS using actual day-of-year coordinates.
+
+    observed: Original observations before interpolation, zero filling or
+        smoothing. Preserve NaN for missing and invalid observations. The
+        array has the same dates and ordering as ts. When omitted, ts supplies
+        the observation support for direct extraction from observed data.
+    max_gap_days: Maximum calendar-day distance from a POS candidate to a
+        finite original observation. Defaults to POS_SUPPORT_DAYS.
+
+    SOS and EOS use the existing threshold crossings. POS uses the highest
+    supported local peak instead of a maximum extrapolated across a long gap.
+    """
     ts = np.asarray(ts, dtype=float)
+    observed = ts if observed is None else np.asarray(observed, dtype=float)
     if dates is None:
         groups = (
             (np.arange(start, start + days_per_year),
@@ -156,7 +198,9 @@ def extract_phenology(ts, thresholds, days_per_year=365, dates=None):
             eos_list.append(np.nan)
             continue
 
-        pos_list.append(float(doy[np.nanargmax(y)]))
+        pos_list.append(extract_supported_pos(
+            y, doy, observed[indices], max_gap_days=max_gap_days
+        ))
         sos_vals, eos_vals = [], []
         for threshold in thresholds:
             above = np.flatnonzero(y >= threshold)
@@ -203,9 +247,15 @@ if __name__ == '__main__':
     )
 
     true_sos, true_pos, true_eos = extract_phenology(base, thresholds, dates=dates)
-    sos_sg, pos_sg, eos_sg = extract_phenology(sg, thresholds, dates=dates)
-    sos_spline, pos_spline, eos_spline = extract_phenology(spline, thresholds, dates=dates)
-    sos_hants, pos_hants, eos_hants = extract_phenology(hants, thresholds, dates=dates)
+    sos_sg, pos_sg, eos_sg = extract_phenology(
+        sg, thresholds, dates=dates, observed=signal_missing
+    )
+    sos_spline, pos_spline, eos_spline = extract_phenology(
+        spline, thresholds, dates=dates, observed=signal_missing
+    )
+    sos_hants, pos_hants, eos_hants = extract_phenology(
+        hants, thresholds, dates=dates, observed=signal_missing
+    )
 
     first_year = annual_groups[0][0]
     doy = annual_groups[0][1] + 1
@@ -230,3 +280,4 @@ if __name__ == '__main__':
     output_dir.mkdir(exist_ok=True)
     fig.savefig(output_dir / '2.png', dpi=300)
     plt.show()
+
